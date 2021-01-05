@@ -9,7 +9,9 @@ from sklearn.preprocessing import LabelBinarizer
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation
 from keras.optimizers import Adam, SGD
-
+from keras.callbacks import EarlyStopping
+from keras import regularizers
+from keras.layers import Conv2D, Flatten, MaxPooling2D
 with np.load('training-dataset.npz')  as data:
     img = data['x']
     lbl = data['y']
@@ -23,12 +25,12 @@ for im in range(10):
     plt.show()
 # Splitting data into train and test with 80% for training data and 10% for test data
 
-X_train, X_test, y_train, y_test = train_test_split(img, lbl, train_size=0.8, stratify=lbl ,random_state=1) 
+X_train, X_val_test, y_train, y_val_test = train_test_split(img, lbl, test_size=0.2,random_state=1) 
 
 # Splitting the train data again into validation and train data with 80% of the train data for training and the 
 # remaining 10% for validation purpose
 
-X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, stratify=y_test, random_state=1) 
+X_val, X_test, y_val, y_test = train_test_split(X_val_test, y_val_test, test_size=0.3, random_state=1) 
 # Visualising the shape of the train and test data
 print(X_train.shape)
 print(X_test.shape)
@@ -37,9 +39,9 @@ print(y_test.shape)
 print(y_val.shape)
 # Preprocessing the data so that it runs faster during fitting the model
 # Preprocess the data (these are NumPy arrays)
-X_train = X_train.reshape(99840, 784).astype("float32") / 255
-X_test = X_test.reshape(12480, 784).astype("float32") / 255
-X_val = X_val.reshape(12480, 784).astype("float32") / 255
+X_train = X_train.reshape(X_train.shape[0], 28, 28, 1).astype("float32") / 255
+X_test = X_test.reshape(X_test.shape[0], 28, 28, 1).astype("float32") / 255
+X_val = X_val.reshape(X_val.shape[0], 28, 28, 1).astype("float32") / 255
 y_train = y_train.astype("float32")
 y_test = y_test.astype("float32")
 y_val = y_val.astype("float32")
@@ -48,23 +50,43 @@ onehot = LabelBinarizer()
 Y_train = onehot.fit_transform(y_train)
 Y_val   = onehot.fit_transform(y_val)
 Y_test   = onehot.transform(y_test)
-# Baseline
-baseline = LogisticRegression()
-baseline.fit(X_train, y_train)
-print(accuracy_score(y_test, baseline.predict(X_test)))
-# Fitting the compiling and fitting the sequential model
+# compiling and fitting the sequential model
 #.....................................
-model = Sequential()
-model.add(Dense(80, input_dim=X_train.shape[1], activation='relu'))
-
-model.add(Dense(80, activation='relu'))
-
-model.add(Dense(26, activation='softmax')) # We need to have as many units as classes, 
-                                                             # and softmax activation
+es = EarlyStopping(monitor= 'val_loss')
 optimizer = Adam(lr=0.0001)
+model = Sequential()
+
+model.add(Conv2D(32, kernel_size=(3, 3), strides=(1, 1),activation='relu', input_shape=X_train.shape[1:]))
+model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+model.add(Conv2D(32, (3, 3), activation='relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+model.add(Flatten())
+model.add(Dense(350, activation='relu', kernel_regularizer=regularizers.l2(0.0001)))
+model.add(Dense(Y_train.shape[1], activation='softmax')) # We need to have as many units as classes, and softmax activation
+
 # For classification, the loss function should be categorical_crossentropy
-model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics = ['accuracy'])
-model.fit(X_train, Y_train, epochs=60, batch_size=64, validation_data=(X_val, Y_val), verbose=1)
+model.compile(loss='categorical_crossentropy', optimizer= optimizer, metrics = ['accuracy'])
+history = model.fit(X_train, Y_train, epochs=100, batch_size = 450, validation_data = (X_val, Y_val), verbose=1, callbacks = [es])
+from keras.callbacks import History
+# list all data in history
+
+accuracy = history.history['accuracy']
+#summarize history for accuracy
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'validation'], loc='lower right')
+plt.show()
+# summarize history for loss
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train', 'validation'], loc='upper right')
+plt.show()
 # Save the model to disk.
 model.save_weights('model.h5')
 
@@ -78,5 +100,5 @@ print(accuracy_score(y_test, y_pred))
 model.evaluate(X_test,Y_test)
 # Model summary
 model.summary()
-print((y_pred[:5]))
-print((y_test[:5]))
+print((y_pred[:100]))
+print((y_test[:100]).astype('int32'))
