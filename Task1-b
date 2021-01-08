@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelBinarizer
-## Neural nets
+## Neural nets packages
 #.....................................
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation
@@ -12,6 +12,26 @@ from keras.optimizers import Adam, SGD
 from keras.callbacks import EarlyStopping
 from keras import regularizers
 from keras.layers import Conv2D, Flatten, MaxPooling2D
+## Image processing packages
+#.....................................
+from skimage.transform import resize
+from skimage import data
+from skimage.filters import threshold_otsu, rank
+from skimage.segmentation import clear_border
+from skimage.measure import label, regionprops
+from skimage.morphology import closing, square
+from skimage.color import label2rgb
+from skimage.feature import canny
+from scipy.ndimage import gaussian_filter
+from skimage import data
+from skimage import img_as_float
+from skimage.morphology import reconstruction
+import cv2
+## Matplot lib
+#.....................................
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
 with np.load('training-dataset.npz')  as data:
     img = data['x']
     lbl = data['y']
@@ -102,3 +122,124 @@ model.evaluate(X_test,Y_test)
 model.summary()
 print((y_pred[:100]))
 print((y_test[:100]).astype('int32'))
+# Task 2 
+# Making the model Robust against noises in the image
+test_data = np.load('test-dataset.npy') 
+print(test_data.shape)
+# compiling and fitting the sequential model
+#.....................................
+es = EarlyStopping(monitor= 'val_loss')
+optimizer = Adam(lr=0.0001)
+model = Sequential()
+
+model.add(Conv2D(32, kernel_size=(3, 3), padding = 'same',strides=(1, 1),activation='relu', input_shape=X_train.shape[1:]))
+model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+model.add(Conv2D(32, (3, 3), padding = 'same', activation='relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+model.add(GaussianNoise(0.5))
+model.add(Flatten())
+model.add(Dense(360, activation='relu', kernel_regularizer=regularizers.l2(0.0001)))
+model.add(Dense(360, activation='relu', kernel_regularizer=regularizers.l2(0.0001)))
+model.add(Dense(360, activation='relu', kernel_regularizer=regularizers.l2(0.0001)))
+model.add(Dense(360, activation='relu', kernel_regularizer=regularizers.l2(0.0001)))
+model.add(Dense(Y_train.shape[1], activation='softmax')) # We need to have as many units as classes, and softmax activation
+
+# For classification, the loss function should be categorical_crossentropy
+model.compile(loss='categorical_crossentropy', optimizer= optimizer, metrics = ['accuracy'])
+history1 = model.fit(X_train, Y_train, epochs=100, batch_size = 450, validation_data = (X_val, Y_val), verbose=1, callbacks = [es])
+#summarize history for accuracy
+plt.plot(history1.history['accuracy'])
+plt.plot(history1.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'validation'], loc='lower right')
+plt.show()
+# summarize history for loss
+plt.plot(history1.history['loss'])
+plt.plot(history1.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train', 'validation'], loc='upper right')
+plt.show()
+y_pred1 = model.predict_classes(X_test, verbose=1)
+print(accuracy_score(y_test, y_pred1))
+# load test-dataset
+img_data = np.load('test-dataset.npy')
+img_data[0].shape
+## Pre-processing test-dataset images
+# Convert to float: Important for subtraction later which won't work with uint8
+image_ski = img_data[245]
+image1 = gaussian_filter(image_ski, 0.99)
+#image1 = filters.sobel(image)
+seed = np.copy(image1)
+seed[1:-1, 1:-1] = image1.min()
+mask = image1
+
+dilated = reconstruction(seed, mask, method='dilation')
+fig, ( ax2) = plt.subplots(nrows=1,
+                                    ncols=1,
+                                    figsize=(8, 2.5),
+                                    sharex=True,
+                                    sharey=True)
+ax2.imshow(image1 - dilated, cmap='gray')
+ax2.set_title('image - dilated')
+ax2.axis('off')
+
+fig.tight_layout()
+
+# apply threshold
+thresh = threshold_otsu(image1)
+im_dil = image1 - dilated
+bw = closing(im_dil > thresh, square(1))
+
+# remove artifacts connected to image border
+cleared = clear_border(bw)
+
+# label image regions
+label_image = label(cleared)
+# to make the background transparent, pass the value of `bg_label`,
+# and leave `bg_color` as `None` and `kind` as `overlay`
+#image_label_overlay = label2rgb(label_image, image=image, bg_label=0)
+
+fig, ax = plt.subplots(figsize=(30, 10))
+ax.imshow(bw)
+
+for region in regionprops(label_image):
+    # take regions with large enough areas
+    #if region.area >= 30 or region.area >= 500 :
+        # draw rectangle around segmented coins
+    minr, minc, maxr, maxc = region.bbox
+    rect = mpatches.Rectangle((minc, minr), maxc - minc, maxr - minr,
+                                  fill=False, edgecolor='blue', linewidth=2)
+    print("b",(minc, minr), maxc - minc, maxr - minr,rect)
+    ax.add_patch(rect)
+ax.set_axis_off()
+plt.tight_layout()
+plt.show()
+## For checking purpose (Slicing the images) 
+## formula to slice the rectangled images img[y:y+h,x:x+w] 
+## (x,y,widht,height gets printed while preprocessing images 
+## look for print("b",(minc, minr), maxc - minc, maxr - minr,rect) )
+img = img_data[245]
+image1 = img[4:25, 42:72]
+image1 = np.array(image1, dtype='float')
+pixels1 = img
+plt.imshow(pixels1)
+plt.show()
+# checking the shape of image
+image1.shape
+# Resizing the image to 28*28
+res = cv2.resize(image1, dsize=(28, 28), interpolation=cv2.INTER_CUBIC)
+res.shape
+# expanding the dimension of image from 28,28 to (1,28,28)
+pred_img = np.expand_dims(res, axis=0)
+pred_img.shape
+## reshaping the predicted image from (1,28,28) to (1,28,28,1)
+## and converting it to float and dividing it by 255 pixels 
+## to get values between 0-1
+pred_img = pred_img.reshape(pred_img.shape[0], 28, 28, 1).astype("float32") / 255
+pred_img.shape
+# Predicting the image
+model.predict_classes(pred_img, verbose=1)
